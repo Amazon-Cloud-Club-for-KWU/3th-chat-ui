@@ -4,6 +4,7 @@ import { AppState, ServerConfig, ChatRoom } from './types';
 import ServerSelectPage from './components/ServerSelectPage';
 import LoginPage from './components/LoginPage';
 import ChatRoomsPage from './components/ChatRoomsPage';
+
 import ChatPage from './components/ChatPage';
 import ENV, { validateEnv, parseServerConfigs } from './config/env';
 
@@ -217,6 +218,8 @@ function App() {
     setChatRoomSubscriptionManager({ resubscribeToRoom });
   }, []); // 의존성 없음으로 안정적인 함수 생성
 
+
+
   // 뒤로가기 핸들러
   const goBack = () => {
     setAppState(prev => {
@@ -259,8 +262,11 @@ function App() {
           onSelectChatRoom={selectChatRoom}
           onChatPageReturn={handleChatPageReturn}
           onBack={goBack}
+
         />
       )}
+      
+
       
       {appState.currentPage === 'chat' && appState.currentChatRoom && appState.selectedServer && appState.accessToken && (
         <ChatPage 

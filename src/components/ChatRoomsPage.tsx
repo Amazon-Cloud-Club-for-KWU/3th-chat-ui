@@ -9,18 +9,28 @@ interface ChatRoomsPageProps {
   onSelectChatRoom: (chatRoom: ChatRoom, unsubscribeFromRoom: (roomId: number) => void) => void;
   onChatPageReturn?: (resubscribeToRoom: (roomId: number) => void) => void;
   onBack: () => void;
+  onShowAllChatRooms?: () => void;
 }
 
 const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, onSelectChatRoom, onChatPageReturn, onBack }) => {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  const [allChatRooms, setAllChatRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const [allRoomsLoading, setAllRoomsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [creating, setCreating] = useState(false);
   const [connected, setConnected] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'my-rooms' | 'all-rooms'>('my-rooms');
+  const [searchTerm, setSearchTerm] = useState('');
   const stompClient = useRef<Client | null>(null);
   const subscriptions = useRef<{[roomId: string]: any}>({});
+
+  // 검색 필터링
+  const filteredRooms = allChatRooms.filter(room =>
+    room.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   // 현재 사용자 정보 가져오기
   const fetchCurrentUser = useCallback(async () => {
@@ -75,7 +85,43 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     } finally {
       setLoading(false);
     }
-  }, [serverUrl, accessToken]); // onBack 제거하여 무한 루프 방지
+  }, [serverUrl, accessToken, onBack]);
+
+  // 모든 채팅방 조회 (참여 여부와 관계없이)
+  const fetchAllChatRooms = useCallback(async () => {
+    try {
+      setAllRoomsLoading(true);
+      const response = await fetch(`${serverUrl}/api/chats`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('모든 채팅방 목록 조회 성공:', data);
+        
+        const rooms = data.nodes || [];
+        // 마지막 메시지 시간 기준으로 정렬
+        const sortedRooms = rooms.sort((a: ChatRoom, b: ChatRoom) => {
+          const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+          const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+          return bTime - aTime; // 최신 메시지가 있는 방이 위로
+        });
+        
+        console.log(`모든 채팅방 ${sortedRooms.length}개 로드 완료`);
+        setAllChatRooms(sortedRooms);
+      } else if (response.status === 401 || response.status === 403) {
+        alert('인증이 만료되었습니다. 다시 로그인해주세요.');
+        onBack();
+      } else {
+        alert('채팅방 목록을 불러올 수 없습니다.');
+      }
+    } catch (error) {
+      console.error('모든 채팅방 목록 조회 오류:', error);
+      alert(`서버 연결 실패`);
+    } finally {
+      setAllRoomsLoading(false);
+    }
+  }, [serverUrl, accessToken, onBack]);
 
   const connectWebSocket = useCallback(() => {
     
@@ -323,6 +369,13 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     }
   }, []); // 의존성 배열을 비워서 컴포넌트 마운트 시에만 실행
 
+  // 탭 변경 시 모든 채팅방 로드
+  useEffect(() => {
+    if (activeTab === 'all-rooms' && allChatRooms.length === 0) {
+      fetchAllChatRooms();
+    }
+  }, [activeTab, allChatRooms.length, fetchAllChatRooms]);
+
   // onChatPageReturn 함수 전달은 별도 useEffect로 분리
   useEffect(() => {
     if (onChatPageReturn) {
@@ -352,6 +405,32 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     };
   }, [disconnectWebSocket]);
 
+  // 채팅방 참여 함수
+  const joinChatRoom = async (roomId: number) => {
+    try {
+      const response = await fetch(`${serverUrl}/api/chats/${roomId}/join`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (response.ok) {
+        alert('채팅방에 참여했습니다!');
+        // 채팅방 목록 새로고침
+        await fetchChatRooms();
+        await fetchAllChatRooms();
+      } else if (response.status === 409) {
+        alert('이미 참여 중인 채팅방입니다.');
+      } else {
+        alert('채팅방 참여에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('채팅방 참여 오류:', error);
+      alert('채팅방 참여 중 오류가 발생했습니다.');
+    }
+  };
+
   const createChatRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim()) {
@@ -378,6 +457,7 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         
         // 채팅방 목록 새로고침
         await fetchChatRooms();
+        await fetchAllChatRooms();
         
         // 모달 닫기 및 초기화
         setShowCreateModal(false);
@@ -407,72 +487,181 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     <div className="page-container">
       <div className="chat-rooms-header">
         <button className="back-button" onClick={onBack}>← 로그아웃</button>
-        <h1>채팅방 목록</h1>
+        <h1>채팅방</h1>
         <div className="header-right">
           <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
             {connected ? '🟢 실시간 연결됨' : '🔴 연결 중...'}
           </div>
-          <button 
-            className="create-room-button" 
-            onClick={() => setShowCreateModal(true)}
-          >
-            + 채팅방 생성
-          </button>
         </div>
       </div>
+
+      {/* 탭 네비게이션 */}
+      <div className="tab-navigation">
+        <button 
+          className={`tab-button ${activeTab === 'my-rooms' ? 'active' : ''}`}
+          onClick={() => setActiveTab('my-rooms')}
+        >
+          💬 내 채팅방 ({chatRooms.length})
+        </button>
+        <button 
+          className={`tab-button ${activeTab === 'all-rooms' ? 'active' : ''}`}
+          onClick={() => setActiveTab('all-rooms')}
+        >
+          🌐 모든 채팅방
+        </button>
+      </div>
       
-      {chatRooms.length === 0 ? (
-        <div className="empty-state">
-          <p>채팅방이 없습니다.</p>
-          <button 
-            className="create-first-room-button"
-            onClick={() => setShowCreateModal(true)}
-          >
-            첫 번째 채팅방 만들기
-          </button>
-        </div>
-      ) : (
-        <div className="chat-room-list">
-          {chatRooms.map((room) => (
-            <button
-              key={room.id}
-              className="chat-room-item"
-              onClick={() => {
-                // 읽지 않은 메시지 수를 0으로 리셋
-                setChatRooms(prev => prev.map(r => 
-                  r.id === room.id ? { ...r, unreadCount: 0 } : r
-                ));
-                console.log(`채팅방 ${room.name} 선택 - 읽지 않은 메시지 수 리셋`);
-                onSelectChatRoom(room, unsubscribeFromRoom);
-              }}
-            >
-              <div className="room-header">
-                <div className="room-name-container">
-                  <div className="room-name">{room.name}</div>
-                  {room.unreadCount && room.unreadCount > 0 && (
-                    <span className="unread-badge">{room.unreadCount}</span>
-                  )}
-                </div>
-                {room.lastMessage && (
-                  <div className="last-message-time">
-                    {new Date(room.lastMessage.createdAt).toLocaleTimeString('ko-KR', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
+      {/* 내 채팅방 탭 */}
+      {activeTab === 'my-rooms' && (
+        <>
+          {chatRooms.length === 0 ? (
+            <div className="empty-state">
+              <p>참여한 채팅방이 없습니다.</p>
+              <button 
+                className="create-first-room-button"
+                onClick={() => setActiveTab('all-rooms')}
+              >
+                채팅방 둘러보기
+              </button>
+            </div>
+          ) : (
+            <div className="chat-room-list">
+              {chatRooms.map((room) => (
+                <button
+                  key={room.id}
+                  className="chat-room-item"
+                  onClick={() => {
+                    // 읽지 않은 메시지 수를 0으로 리셋
+                    setChatRooms(prev => prev.map(r => 
+                      r.id === room.id ? { ...r, unreadCount: 0 } : r
+                    ));
+                    console.log(`채팅방 ${room.name} 선택 - 읽지 않은 메시지 수 리셋`);
+                    onSelectChatRoom(room, unsubscribeFromRoom);
+                  }}
+                >
+                  <div className="room-header">
+                    <div className="room-name-container">
+                      <div className="room-name">{room.name}</div>
+                      {room.unreadCount && room.unreadCount > 0 && (
+                        <span className="unread-badge">{room.unreadCount}</span>
+                      )}
+                    </div>
+                    {room.lastMessage && (
+                      <div className="last-message-time">
+                        {new Date(room.lastMessage.createdAt).toLocaleTimeString('ko-KR', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              {room.lastMessage && (
-                <div className="last-message">
-                  <span className="sender-name">{room.lastMessage.sender.username}</span>: {room.lastMessage.content}
+                  {room.lastMessage && (
+                    <div className="last-message">
+                      <span className="sender-name">{room.lastMessage.sender.username}</span>: {room.lastMessage.content}
+                    </div>
+                  )}
+                  {!room.lastMessage && (
+                    <div className="last-message no-message">메시지가 없습니다</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 모든 채팅방 탭 */}
+      {activeTab === 'all-rooms' && (
+        <>
+          {/* 검색 바 */}
+          <div className="search-container">
+            <input
+              type="text"
+              placeholder="채팅방 이름으로 검색..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+            <button 
+              onClick={() => setSearchTerm('')}
+              className="clear-search"
+              disabled={!searchTerm}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* 채팅방 생성 버튼 */}
+          <div className="create-room-section">
+            <button 
+              className="create-room-button" 
+              onClick={() => setShowCreateModal(true)}
+            >
+              + 새 채팅방 만들기
+            </button>
+          </div>
+
+          {/* 모든 채팅방 목록 */}
+          {allRoomsLoading ? (
+            <div className="loading">모든 채팅방을 불러오는 중...</div>
+          ) : (
+            <>
+              {filteredRooms.length === 0 ? (
+                <div className="no-rooms">
+                  {searchTerm ? '검색 결과가 없습니다.' : '채팅방이 없습니다.'}
+                </div>
+              ) : (
+                <div className="chat-room-list">
+                  {filteredRooms.map((room) => (
+                    <div key={room.id} className="chat-room-item all-rooms">
+                      <div className="room-header">
+                        <div className="room-name-container">
+                          <div className="room-name">{room.name}</div>
+                          {room.unreadCount && room.unreadCount > 0 && (
+                            <span className="unread-badge">{room.unreadCount}</span>
+                          )}
+                        </div>
+                        {room.lastMessage && (
+                          <div className="last-message-time">
+                            {new Date(room.lastMessage.createdAt).toLocaleTimeString('ko-KR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {room.lastMessage && (
+                        <div className="last-message">
+                          <span className="sender-name">{room.lastMessage.sender.username}</span>: {room.lastMessage.content}
+                        </div>
+                      )}
+                      {!room.lastMessage && (
+                        <div className="last-message no-message">메시지가 없습니다</div>
+                      )}
+
+                      {/* 액션 버튼들 */}
+                      <div className="room-actions">
+                        <button 
+                          className="action-button join-button"
+                          onClick={() => joinChatRoom(room.id)}
+                        >
+                          참여하기
+                        </button>
+                        <button 
+                          className="action-button view-button"
+                          onClick={() => onSelectChatRoom(room, () => {})}
+                        >
+                          보기
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-              {!room.lastMessage && (
-                <div className="last-message no-message">메시지가 없습니다</div>
-              )}
-            </button>
-          ))}
-        </div>
+            </>
+          )}
+        </>
       )}
 
       {/* 채팅방 생성 모달 */}
