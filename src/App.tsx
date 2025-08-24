@@ -76,6 +76,12 @@ function App() {
   // 초기 상태를 localStorage에서 로드하거나 기본값 사용
   const [appState, setAppState] = useState<AppState>(() => {
     const savedState = loadFromStorage();
+    console.log('localStorage에서 로드된 상태:', {
+      hasToken: !!savedState?.accessToken,
+      hasUser: !!savedState?.user,
+      hasServer: !!savedState?.selectedServer,
+      currentPage: savedState?.currentPage || 'server-select'
+    });
     return savedState || { currentPage: 'server-select' };
   });
 
@@ -175,6 +181,12 @@ function App() {
             if (appState.selectedServer) {
               saveToStorage(data.accessToken, user, appState.selectedServer);
             }
+            
+            console.log('로그인 후 상태 업데이트:', {
+              user,
+              accessToken: data.accessToken ? `${data.accessToken.substring(0, 20)}...` : '없음',
+              currentPage: 'chat-rooms'
+            });
             
             setAppState(prev => ({
               ...prev,

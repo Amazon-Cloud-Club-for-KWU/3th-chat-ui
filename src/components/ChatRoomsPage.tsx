@@ -348,7 +348,18 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
 
   useEffect(() => {
     const initializeData = async () => {
-      console.log('ChatRoomsPage 초기화 시작');
+      console.log('ChatRoomsPage 초기화 시작:', {
+        serverUrl,
+        accessToken: accessToken ? `${accessToken.substring(0, 20)}...` : '없음',
+        hasToken: !!accessToken
+      });
+      
+      if (!accessToken) {
+        console.error('accessToken이 없습니다!');
+        alert('인증 토큰이 없습니다. 다시 로그인해주세요.');
+        onBack();
+        return;
+      }
       
       // 1. 현재 사용자 정보 가져오기
       await fetchCurrentUser();
@@ -367,7 +378,7 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         console.log('알림 권한:', permission);
       });
     }
-  }, []); // 의존성 배열을 비워서 컴포넌트 마운트 시에만 실행
+  }, [accessToken, serverUrl, onBack]); // accessToken 의존성 추가
 
   // 탭 변경 시 모든 채팅방 로드
   useEffect(() => {
@@ -405,29 +416,39 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     };
   }, [disconnectWebSocket]);
 
-  // 채팅방 참여 함수
+  // 채팅방 참여 함수 (WebSocket 사용)
   const joinChatRoom = async (roomId: number) => {
+    if (!stompClient.current || !stompClient.current.connected) {
+      alert('WebSocket 연결이 필요합니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
     try {
-      const response = await fetch(`${serverUrl}/api/chats/${roomId}/join`, {
-        method: 'POST',
+      console.log(`채팅방 ${roomId} 입장 요청 전송 시작`);
+      
+      // WebSocket을 통해 채팅방 입장 메시지 전송
+      stompClient.current.publish({
+        destination: `/pub/chat/join/${roomId}`,
+        body: JSON.stringify({}),
         headers: {
           'Authorization': `Bearer ${accessToken}`
         }
       });
 
-      if (response.ok) {
-        alert('채팅방에 참여했습니다!');
-        // 채팅방 목록 새로고침
+      console.log(`채팅방 ${roomId} 입장 요청 전송 완료`);
+      
+      // 잠시 후 채팅방 목록 새로고침 (서버에서 처리 완료 대기)
+      setTimeout(async () => {
+        console.log('채팅방 목록 새로고침 시작');
         await fetchChatRooms();
         await fetchAllChatRooms();
-      } else if (response.status === 409) {
-        alert('이미 참여 중인 채팅방입니다.');
-      } else {
-        alert('채팅방 참여에 실패했습니다.');
-      }
+        console.log('채팅방 목록 새로고침 완료');
+      }, 1000);
+
+      alert('채팅방 입장 요청이 전송되었습니다!');
     } catch (error) {
-      console.error('채팅방 참여 오류:', error);
-      alert('채팅방 참여 중 오류가 발생했습니다.');
+      console.error('채팅방 입장 오류:', error);
+      alert('채팅방 입장 중 오류가 발생했습니다.');
     }
   };
 
