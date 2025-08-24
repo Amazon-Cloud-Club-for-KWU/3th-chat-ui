@@ -5,11 +5,15 @@ import ServerSelectPage from './components/ServerSelectPage';
 import LoginPage from './components/LoginPage';
 import ChatRoomsPage from './components/ChatRoomsPage';
 import ChatPage from './components/ChatPage';
+import ENV, { validateEnv, parseServerConfigs } from './config/env';
+
+// 환경 변수에서 서버 설정 가져오기
+const getDefaultServers = (): ServerConfig[] => {
+  return parseServerConfigs();
+};
 
 // 기본 서버 목록
-const DEFAULT_SERVERS: ServerConfig[] = [
-  { name: '로컬 서버', url: 'http://localhost:8080' }
-];
+const DEFAULT_SERVERS: ServerConfig[] = getDefaultServers();
 
 // localStorage 키 상수
 const STORAGE_KEYS = {
@@ -63,6 +67,11 @@ const clearStorage = () => {
 };
 
 function App() {
+  // 환경 변수 검증
+  useEffect(() => {
+    validateEnv();
+  }, []);
+
   // 초기 상태를 localStorage에서 로드하거나 기본값 사용
   const [appState, setAppState] = useState<AppState>(() => {
     const savedState = loadFromStorage();
