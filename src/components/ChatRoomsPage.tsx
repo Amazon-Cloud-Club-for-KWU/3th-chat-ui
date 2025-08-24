@@ -88,21 +88,26 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       debug: () => {
         // 디버그 로깅 비활성화
       },
-      onConnect: () => {
+      onConnect: (frame) => {
+        console.log('WebSocket STOMP 연결 성공:', frame);
         setConnected(true);
         
         // 연결 완료 후 잠시 기다린 다음 구독 시작
         setTimeout(() => {
+          console.log('구독 시작 시도...');
           subscribeToAllRooms();
-        }, 100);
+        }, 500); // 더 긴 대기 시간
       },
-      onDisconnect: () => {
+      onDisconnect: (frame) => {
+        console.log('WebSocket STOMP 연결 해제:', frame);
         setConnected(false);
       },
-      onStompError: () => {
+      onStompError: (frame) => {
+        console.error('STOMP 에러:', frame);
         setConnected(false);
       },
-      onWebSocketError: () => {
+      onWebSocketError: (event) => {
+        console.error('WebSocket 에러:', event);
         setConnected(false);
       }
     });
@@ -112,12 +117,20 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
   }, [serverUrl, accessToken]);
 
   const subscribeToAllRooms = useCallback(() => {
-    if (!stompClient.current || !connected || !stompClient.current.connected) {
-      console.log('구독 조건 미충족:', {
-        stompClient: !!stompClient.current,
-        connected,
-        stompConnected: stompClient.current?.connected
-      });
+    console.log('구독 조건 체크:', {
+      stompClient: !!stompClient.current,
+      connected,
+      stompConnected: stompClient.current?.connected,
+      chatRoomsLength: chatRooms.length
+    });
+    
+    if (!stompClient.current || !stompClient.current.connected) {
+      console.log('구독 조건 미충족: STOMP 클라이언트 없거나 미연결');
+      return;
+    }
+    
+    if (chatRooms.length === 0) {
+      console.log('구독 조건 미충족: 채팅방이 없음');
       return;
     }
     
@@ -321,10 +334,16 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
 
   // 채팅방 목록이 로드되면 자동으로 WebSocket 연결
   useEffect(() => {
-    if (chatRooms.length > 0 && !connected) {
+    if (chatRooms.length > 0 && (!stompClient.current || !stompClient.current.connected)) {
+      console.log('채팅방 로드 완료 - WebSocket 연결 시도');
       connectWebSocket();
+    } else if (chatRooms.length > 0 && stompClient.current?.connected) {
+      console.log('WebSocket 이미 연결됨 - 구독 재시도');
+      setTimeout(() => {
+        subscribeToAllRooms();
+      }, 100);
     }
-  }, [chatRooms, connected, connectWebSocket]);
+  }, [chatRooms, connectWebSocket, subscribeToAllRooms]);
 
   // 컴포넌트 언마운트 시 연결 해제
   useEffect(() => {
