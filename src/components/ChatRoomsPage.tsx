@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 import { ChatRoom, User } from '../types';
+import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
 
 interface ChatRoomsPageProps {
   serverUrl: string;
@@ -124,15 +125,27 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
   }, [serverUrl, accessToken, onBack]);
 
   const connectWebSocket = useCallback(() => {
+    const sockJsUrl = getSockJSUrl(serverUrl);
+    const wsUrl = getWebSocketUrl(serverUrl);
     
-    const socket = new SockJS(`${serverUrl}/ws-chat`);
+    console.log('WebSocket 연결 시도:', {
+      serverUrl,
+      sockJsUrl,
+      wsUrl,
+      currentProtocol: window.location.protocol,
+      userAgent: navigator.userAgent
+    });
+    
+    const socket = new SockJS(`${sockJsUrl}/ws-chat`);
     const client = new Client({
       webSocketFactory: () => socket,
       connectHeaders: {
         'Authorization': `Bearer ${accessToken}`
       },
-      debug: () => {
-        // 디버그 로깅 비활성화
+      debug: (str) => {
+        if (ENV.DEBUG) {
+          console.log('STOMP Debug:', str);
+        }
       },
       onConnect: (frame) => {
         console.log('WebSocket STOMP 연결 성공:', frame);
@@ -150,17 +163,31 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       },
       onStompError: (frame) => {
         console.error('STOMP 에러:', frame);
+        console.error('오류 메시지:', frame.body);
+        console.error('오류 헤더:', frame.headers);
         setConnected(false);
       },
       onWebSocketError: (event) => {
         console.error('WebSocket 에러:', event);
+        console.error('WebSocket 오류 타입:', event.type);
+        console.error('WebSocket 오류 타겟:', event.target);
         setConnected(false);
+        
+        // 연결 실패 시 재시도 로직
+        if (event.type === 'error') {
+          console.log('WebSocket 연결 실패, 5초 후 재시도...');
+          setTimeout(() => {
+            if (!connected) {
+              connectWebSocket();
+            }
+          }, 5000);
+        }
       }
     });
     
     client.activate();
     stompClient.current = client;
-  }, [serverUrl, accessToken]);
+  }, [serverUrl, accessToken, connected]);
 
   const subscribeToAllRooms = useCallback(() => {
     console.log('구독 조건 체크:', {
@@ -367,7 +394,24 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       // 2. 내가 가입한 채팅방 목록 가져오기
       await fetchChatRooms();
       
+      // 3. 모든 채팅방 목록 가져오기 (탭 변경 시 로딩 방지)
+      await fetchAllChatRooms();
+      
       console.log('ChatRoomsPage 초기화 완료');
+      
+      // 4. 초기화 완료 후 WebSocket 연결 시도
+      console.log('초기화 완료 - WebSocket 연결 시도');
+      connectWebSocket();
+      
+      // 5. 웹소켓 연결 후 잠시 기다린 다음 구독 시도
+      setTimeout(() => {
+        if (stompClient.current?.connected) {
+          console.log('WebSocket 연결 확인됨 - 모든 채팅방 구독 시도');
+          subscribeToAllRooms();
+        } else {
+          console.log('WebSocket 연결 대기 중...');
+        }
+      }, 1000);
     };
     
     initializeData();
@@ -378,7 +422,7 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         console.log('알림 권한:', permission);
       });
     }
-  }, [accessToken, serverUrl, onBack]); // accessToken 의존성 추가
+  }, [accessToken, serverUrl, onBack, connectWebSocket]); // connectWebSocket 의존성 추가
 
   // 탭 변경 시 모든 채팅방 로드
   useEffect(() => {
@@ -393,21 +437,6 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       onChatPageReturn(resubscribeToRoom);
     }
   }, [onChatPageReturn]); // resubscribeToRoom 제거하여 무한 루프 방지
-
-
-
-  // 채팅방 목록이 로드되면 자동으로 WebSocket 연결
-  useEffect(() => {
-    if (chatRooms.length > 0 && (!stompClient.current || !stompClient.current.connected)) {
-      console.log('채팅방 로드 완료 - WebSocket 연결 시도');
-      connectWebSocket();
-    } else if (chatRooms.length > 0 && stompClient.current?.connected) {
-      console.log('WebSocket 이미 연결됨 - 구독 재시도');
-      setTimeout(() => {
-        subscribeToAllRooms();
-      }, 100);
-    }
-  }, [chatRooms, connectWebSocket, subscribeToAllRooms]);
 
   // 컴포넌트 언마운트 시 연결 해제
   useEffect(() => {
@@ -530,6 +559,9 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         >
           🌐 모든 채팅방
         </button>
+        <div className={`connection-badge ${connected ? 'connected' : 'disconnected'}`}>
+          {connected ? '🟢' : '🔴'}
+        </div>
       </div>
       
       {/* 내 채팅방 탭 */}

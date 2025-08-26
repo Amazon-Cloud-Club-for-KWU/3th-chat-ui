@@ -1,7 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import SockJS from 'sockjs-client';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Client } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
 import { ChatRoom, ChatMessage, User, PaginationResponse } from '../types';
+import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
+
+// Subscription 타입 정의
+type Subscription = any;
 
 interface ChatPageProps {
   chatRoom: ChatRoom;
@@ -136,16 +140,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
   }, [loadingMore, hasMore, currentPage, fetchMessages]);
 
   const connectWebSocket = useCallback(() => {
-    console.log('WebSocket 연결 시도:', `${serverUrl}/ws-chat`);
+    const sockJsUrl = getSockJSUrl(serverUrl);
+    const wsUrl = getWebSocketUrl(serverUrl);
     
-    const socket = new SockJS(`${serverUrl}/ws-chat`);
+    console.log('WebSocket 연결 시도:', {
+      serverUrl,
+      sockJsUrl,
+      wsUrl,
+      currentProtocol: window.location.protocol,
+      userAgent: navigator.userAgent
+    });
+    
+    const socket = new SockJS(`${sockJsUrl}/ws-chat`);
     const client = new Client({
       webSocketFactory: () => socket,
       connectHeaders: {
         'Authorization': `Bearer ${accessToken}`
       },
-      debug: () => {
-        // 디버그 로깅 비활성화
+      debug: (str) => {
+        if (ENV.DEBUG) {
+          console.log('STOMP Debug:', str);
+        }
       },
       onConnect: (frame) => {
         console.log('WebSocket 연결됨:', frame);
@@ -194,6 +209,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
       onStompError: (frame) => {
         console.error('STOMP 오류:', frame);
         console.error('오류 메시지:', frame.body);
+        console.error('오류 헤더:', frame.headers);
         setConnected(false);
         
         // 403 오류인 경우 로그아웃 처리
@@ -204,13 +220,25 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
       },
       onWebSocketError: (error) => {
         console.error('WebSocket 오류:', error);
+        console.error('WebSocket 오류 타입:', error.type);
+        console.error('WebSocket 오류 타겟:', error.target);
         setConnected(false);
+        
+        // 연결 실패 시 재시도 로직
+        if (error.type === 'error') {
+          console.log('WebSocket 연결 실패, 5초 후 재시도...');
+          setTimeout(() => {
+            if (!connected) {
+              connectWebSocket();
+            }
+          }, 5000);
+        }
       }
     });
     
     client.activate();
     stompClient.current = client;
-  }, [serverUrl, accessToken, chatRoom.id, onBack]);
+  }, [serverUrl, accessToken, chatRoom.id, onBack, connected]);
 
   const disconnectWebSocket = useCallback(() => {
     if (stompClient.current && connected) {
