@@ -4,8 +4,8 @@ import { AppState, ServerConfig, ChatRoom } from './types';
 import ServerSelectPage from './components/ServerSelectPage';
 import LoginPage from './components/LoginPage';
 import ChatRoomsPage from './components/ChatRoomsPage';
-
 import ChatPage from './components/ChatPage';
+import { WebSocketProvider } from './contexts/WebSocketContext';
 import ENV, { validateEnv, parseServerConfigs } from './config/env';
 
 // 환경 변수에서 서버 설정 가져오기
@@ -268,26 +268,33 @@ function App() {
       )}
       
       {appState.currentPage === 'chat-rooms' && appState.selectedServer && appState.accessToken && (
-        <ChatRoomsPage 
-          serverUrl={appState.selectedServer.url}
+        <WebSocketProvider 
+          serverUrl={appState.selectedServer.url} 
           accessToken={appState.accessToken}
-          onSelectChatRoom={selectChatRoom}
-          onChatPageReturn={handleChatPageReturn}
-          onBack={goBack}
-
-        />
+        >
+          <ChatRoomsPage 
+            serverUrl={appState.selectedServer.url}
+            accessToken={appState.accessToken}
+            onSelectChatRoom={selectChatRoom}
+            onChatPageReturn={handleChatPageReturn}
+            onBack={goBack}
+          />
+        </WebSocketProvider>
       )}
       
-
-      
       {appState.currentPage === 'chat' && appState.currentChatRoom && appState.selectedServer && appState.accessToken && (
-        <ChatPage 
-          chatRoom={appState.currentChatRoom}
-          serverUrl={appState.selectedServer.url}
+        <WebSocketProvider 
+          serverUrl={appState.selectedServer.url} 
           accessToken={appState.accessToken}
-          user={appState.user!}
-          onBack={goBack}
-        />
+        >
+          <ChatPage 
+            chatRoom={appState.currentChatRoom}
+            serverUrl={appState.selectedServer.url}
+            accessToken={appState.accessToken}
+            user={appState.user!}
+            onBack={goBack}
+          />
+        </WebSocketProvider>
       )}
     </div>
   );

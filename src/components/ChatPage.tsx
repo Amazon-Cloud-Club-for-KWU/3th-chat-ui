@@ -1,11 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 import { ChatRoom, ChatMessage, User, PaginationResponse } from '../types';
-import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
+import { useWebSocket } from '../contexts/WebSocketContext';
 
-// Subscription 타입 정의
-type Subscription = any;
 
 interface ChatPageProps {
   chatRoom: ChatRoom;
@@ -19,16 +15,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const stompClient = useRef<Client | null>(null);
-  const subscription = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
+  
+  const { isConnected, joinChatRoom, leaveChatRoom, sendMessage: sendWebSocketMessage, sendJoinMessage, sendLeaveMessage } = useWebSocket();
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -139,132 +134,23 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
     }, 50);
   }, [loadingMore, hasMore, currentPage, fetchMessages]);
 
-  const connectWebSocket = useCallback(() => {
-    const sockJsUrl = getSockJSUrl(serverUrl);
-    const wsUrl = getWebSocketUrl(serverUrl);
-    
-    console.log('WebSocket 연결 시도:', {
-      serverUrl,
-      sockJsUrl,
-      wsUrl,
-      currentProtocol: window.location.protocol,
-      userAgent: navigator.userAgent
-    });
-    
-    const socket = new SockJS(`${sockJsUrl}/ws-chat`);
-    const client = new Client({
-      webSocketFactory: () => socket,
-      connectHeaders: {
-        'Authorization': `Bearer ${accessToken}`
-      },
-      debug: (str) => {
-        if (ENV.DEBUG) {
-          console.log('STOMP Debug:', str);
-        }
-      },
-      onConnect: (frame) => {
-        console.log('WebSocket 연결됨:', frame);
-        setConnected(true);
-        
-        // 1. 먼저 채팅방 구독
-        const sub = client.subscribe(`/sub/chat/room/${chatRoom.id}`, (message) => {
-          try {
-            const receivedMessage = JSON.parse(message.body);
-            
-            // 중복 메시지 방지: 이미 존재하는 메시지 ID인지 확인
-            setMessages(prev => {
-              const isAlreadyExists = prev.some(msg => msg.id === receivedMessage.id);
-              if (isAlreadyExists) {
-                console.log('중복 메시지 무시:', receivedMessage.id);
-                return prev; // 중복 메시지는 추가하지 않음
-              }
-              // 새 메시지는 항상 끝에 추가 (시간순)
-              return [...prev, receivedMessage];
-            });
-          } catch (error) {
-            console.error('메시지 파싱 오류:', error);
-            console.error('원본 메시지 body:', message.body);
-          }
-        });
-        
-        subscription.current = sub;
-        console.log('채팅방 구독 완료:', `/sub/chat/room/${chatRoom.id}`);
-        
-        // 2. 구독 완료 후 채팅방 입장
-        setTimeout(() => {
-          client.publish({
-            destination: `/pub/chat/join/${chatRoom.id}`,
-            body: JSON.stringify({}),
-            headers: {
-              'Authorization': `Bearer ${accessToken}`
-            }
-          });
-          console.log('채팅방 입장 메시지 전송:', chatRoom.id);
-        }, 100); // 구독이 완료될 시간을 위한 짧은 지연
-      },
-      onDisconnect: () => {
-        console.log('WebSocket 연결 끊어짐');
-        setConnected(false);
-      },
-      onStompError: (frame) => {
-        console.error('STOMP 오류:', frame);
-        console.error('오류 메시지:', frame.body);
-        console.error('오류 헤더:', frame.headers);
-        setConnected(false);
-        
-        // 403 오류인 경우 로그아웃 처리
-        if (frame.body && frame.body.includes('403')) {
-          alert('인증이 만료되었습니다. 다시 로그인해주세요.');
-          onBack();
-        }
-      },
-      onWebSocketError: (error) => {
-        console.error('WebSocket 오류:', error);
-        console.error('WebSocket 오류 타입:', error.type);
-        console.error('WebSocket 오류 타겟:', error.target);
-        setConnected(false);
-        
-        // 연결 실패 시 재시도 로직
-        if (error.type === 'error') {
-          console.log('WebSocket 연결 실패, 5초 후 재시도...');
-          setTimeout(() => {
-            if (!connected) {
-              connectWebSocket();
-            }
-          }, 5000);
-        }
+  const handleMessage = useCallback((receivedMessage: ChatMessage) => {
+    console.log('ChatPage에서 메시지 처리 시작:', receivedMessage);
+    // 중복 메시지 방지: 이미 존재하는 메시지 ID인지 확인
+    setMessages(prev => {
+      const isAlreadyExists = prev.some(msg => msg.id === receivedMessage.id);
+      if (isAlreadyExists) {
+        console.log('중복 메시지 무시:', receivedMessage.id);
+        return prev; // 중복 메시지는 추가하지 않음
       }
+      console.log('새 메시지 추가, 기존 메시지 수:', prev.length);
+      // 새 메시지는 항상 끝에 추가 (시간순)
+      const newMessages = [...prev, receivedMessage];
+      console.log('업데이트된 메시지 수:', newMessages.length);
+      return newMessages;
     });
-    
-    client.activate();
-    stompClient.current = client;
-  }, [serverUrl, accessToken, chatRoom.id, onBack, connected]);
+  }, []);
 
-  const disconnectWebSocket = useCallback(() => {
-    if (stompClient.current && connected) {
-      // 채팅방 퇴장 메시지 전송
-      stompClient.current.publish({
-        destination: `/pub/chat/leave/${chatRoom.id}`,
-        body: JSON.stringify({}),
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      });
-      
-      console.log('채팅방 퇴장 메시지 전송:', chatRoom.id);
-      
-      // 구독 해제
-      if (subscription.current) {
-        subscription.current.unsubscribe();
-        subscription.current = null;
-        console.log('채팅방 구독 해제:', chatRoom.id);
-      }
-      
-      stompClient.current.deactivate();
-      stompClient.current = null;
-      setConnected(false);
-    }
-  }, [connected, chatRoom.id, accessToken]);
 
   useEffect(() => {
     console.log(`채팅방 입장: ${chatRoom.name} (ID: ${chatRoom.id})`);
@@ -278,18 +164,34 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
     isInitialLoad.current = true;
     
     fetchMessages(0, false);
-    connectWebSocket();
+    
+    // 채팅방 구독 및 입장 메시지 전송
+    joinChatRoom(chatRoom.id, handleMessage);
+    
+    // 구독 후 짧은 지연 후 입장 메시지 전송
+    setTimeout(() => {
+      sendJoinMessage(chatRoom.id);
+    }, 100);
     
     return () => {
-      disconnectWebSocket();
+      // 채팅방 퇴장 메시지 전송 후 구독 해제
+      sendLeaveMessage(chatRoom.id);
+      setTimeout(() => {
+        leaveChatRoom(chatRoom.id);
+      }, 100);
     };
-  }, [chatRoom.id, fetchMessages, connectWebSocket, disconnectWebSocket]);
+  }, [chatRoom.id, fetchMessages, joinChatRoom, leaveChatRoom, sendJoinMessage, sendLeaveMessage]);
 
   useEffect(() => {
     // 초기 로딩일 때만 스크롤을 맨 아래로
     if (isInitialLoad.current && messages.length > 0) {
       scrollToBottom();
       isInitialLoad.current = false;
+    } else if (!isInitialLoad.current && messages.length > 0) {
+      // 새 메시지가 추가될 때도 스크롤을 아래로
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
     }
   }, [messages, scrollToBottom]);
 
@@ -331,24 +233,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !connected || !stompClient.current) return;
-
-    const messageToSend = {
-      chatRoomId: chatRoom.id,
-      content: newMessage.trim()
-    };
+    if (!newMessage.trim() || !isConnected) return;
 
     try {
-      // WebSocket STOMP를 통한 실시간 메시지 전송
-      stompClient.current.publish({
-        destination: '/pub/chat/send',
-        body: JSON.stringify(messageToSend),
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      });
-      
-      console.log('메시지 전송됨:', messageToSend);
+      sendWebSocketMessage(chatRoom.id, newMessage.trim());
       setNewMessage('');
     } catch (error) {
       console.error('메시지 전송 실패:', error);
@@ -366,8 +254,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
         <button className="back-button" onClick={onBack}>← 뒤로</button>
         <h1>{chatRoom.name}</h1>
         <div className="header-info">
-          <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
-            {connected ? '🟢 연결됨' : '🔴 연결 중...'}
+          <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+            {isConnected ? '🟢 연결됨' : '🔴 연결 중...'}
           </div>
           <div className="pagination-debug" style={{fontSize: '12px', color: '#666'}}>
             페이지: {currentPage}/{totalPages-1} | 메시지: {messages.length} | hasMore: {hasMore ? 'Y' : 'N'}
@@ -403,8 +291,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
         />
-        <button type="submit" disabled={!connected}>
-          {connected ? '전송' : '연결 중...'}
+        <button type="submit" disabled={!isConnected}>
+          {isConnected ? '전송' : '연결 중...'}
         </button>
       </form>
     </div>
