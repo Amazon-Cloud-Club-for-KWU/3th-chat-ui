@@ -1071,49 +1071,6 @@ h1 {
   box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
 }
 
-.search-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 20px 0;
-  padding: 0 20px;
-}
-
-.search-input {
-  flex: 1;
-  padding: 12px 16px;
-  border: 2px solid #e5e7eb;
-  border-radius: 25px;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-
-.search-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.clear-search {
-  background: #6b7280;
-  color: white;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background-color 0.2s ease;
-}
-
-.clear-search:hover:not(:disabled) {
-  background: #4b5563;
-}
-
-.clear-search:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .room-count {
   color: #6b7280;
   font-size: 14px;

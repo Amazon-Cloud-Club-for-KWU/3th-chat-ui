@@ -14,24 +14,17 @@ interface ChatRoomsPageProps {
 }
 
 const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, onSelectChatRoom, onChatPageReturn, onBack }) => {
+  const [activeTab, setActiveTab] = useState<'my-rooms' | 'all-rooms'>('my-rooms');
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [allChatRooms, setAllChatRooms] = useState<ChatRoom[]>([]);
-  const [loading, setLoading] = useState(true);
   const [allRoomsLoading, setAllRoomsLoading] = useState(false);
+  const [connected, setConnected] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [creating, setCreating] = useState(false);
-  const [connected, setConnected] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'my-rooms' | 'all-rooms'>('my-rooms');
-  const [searchTerm, setSearchTerm] = useState('');
   const stompClient = useRef<Client | null>(null);
   const subscriptions = useRef<{[roomId: string]: any}>({});
-
-  // 검색 필터링
-  const filteredRooms = allChatRooms.filter(room =>
-    room.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   // 현재 사용자 정보 가져오기
   const fetchCurrentUser = useCallback(async () => {
@@ -84,7 +77,7 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         alert(`서버 연결 실패`);
       }
     } finally {
-      setLoading(false);
+      // setLoading(false); // 이 부분은 검색 관련 상태가 제거되어 삭제
     }
   }, [serverUrl, accessToken, onBack]);
 
@@ -529,9 +522,11 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     }
   };
 
-  if (loading) {
-    return <div className="page-container">로딩 중...</div>;
-  }
+  // 검색 관련 상태와 함수들을 제거합니다.
+  // const [searchTerm, setSearchTerm] = useState('');
+  // const filteredRooms = allChatRooms.filter(room =>
+  //   room.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // );
 
   return (
     <div className="page-container">
@@ -626,24 +621,6 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       {/* 모든 채팅방 탭 */}
       {activeTab === 'all-rooms' && (
         <>
-          {/* 검색 바 */}
-          <div className="search-container">
-            <input
-              type="text"
-              placeholder="채팅방 이름으로 검색..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="search-input"
-            />
-            <button 
-              onClick={() => setSearchTerm('')}
-              className="clear-search"
-              disabled={!searchTerm}
-            >
-              ✕
-            </button>
-          </div>
-
           {/* 채팅방 생성 버튼 */}
           <div className="create-room-section">
             <button 
@@ -659,13 +636,13 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
             <div className="loading">모든 채팅방을 불러오는 중...</div>
           ) : (
             <>
-              {filteredRooms.length === 0 ? (
+              {allChatRooms.length === 0 ? (
                 <div className="no-rooms">
-                  {searchTerm ? '검색 결과가 없습니다.' : '채팅방이 없습니다.'}
+                  채팅방이 없습니다.
                 </div>
               ) : (
                 <div className="chat-room-list">
-                  {filteredRooms.map((room) => (
+                  {allChatRooms.map((room) => (
                     <div key={room.id} className="chat-room-item all-rooms">
                       <div className="room-header">
                         <div className="room-name-container">
