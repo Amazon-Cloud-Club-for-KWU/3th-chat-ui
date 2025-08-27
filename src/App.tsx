@@ -90,45 +90,7 @@ function App() {
     resubscribeToRoom?: (roomId: number) => void;
   }>({});
 
-  // 앱 시작 시 사용자 정보 검증
-  useEffect(() => {
-    const validateUser = async () => {
-      if (appState.accessToken && appState.selectedServer && appState.user) {
-        try {
-          console.log('저장된 사용자 정보 검증 시작');
-          const response = await fetch(`${appState.selectedServer.url}/api/users/me`, {
-            headers: { 'Authorization': `Bearer ${appState.accessToken}` }
-          });
-          
-          if (response.ok) {
-            const userData = await response.json();
-            console.log('사용자 정보 검증 성공:', userData);
-            
-            // 저장된 정보와 서버 정보가 다르면 업데이트
-            if (userData.id !== appState.user.id || userData.username !== appState.user.username) {
-              console.log('사용자 정보 업데이트 필요');
-              const updatedUser = {
-                id: userData.id,
-                username: userData.username,
-                email: userData.email || appState.user.email
-              };
-              
-              saveToStorage(appState.accessToken, updatedUser, appState.selectedServer);
-              setAppState(prev => ({ ...prev, user: updatedUser }));
-            }
-          } else if (response.status === 401) {
-            console.log('토큰 만료, 로그아웃 처리');
-            clearStorage();
-            setAppState({ currentPage: 'server-select' });
-          }
-        } catch (error) {
-          console.error('사용자 정보 검증 오류:', error);
-        }
-      }
-    };
-
-    validateUser();
-  }, []); // 앱 시작 시 한 번만 실행
+  // 사용자 정보 검증은 ChatRoomsPage에서 처리하므로 제거
 
   // 서버 선택 핸들러
   const selectServer = (server: ServerConfig) => {

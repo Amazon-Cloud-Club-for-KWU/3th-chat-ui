@@ -23,16 +23,28 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
   const [newRoomName, setNewRoomName] = useState('');
   const [creating, setCreating] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userLoading, setUserLoading] = useState(false);
+  const [chatRoomsLoading, setChatRoomsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
   const stompClient = useRef<Client | null>(null);
   const subscriptions = useRef<{[roomId: string]: any}>({});
 
   // 현재 사용자 정보 가져오기
   const fetchCurrentUser = useCallback(async () => {
+    // 중복 호출 방지
+    if (userLoading) {
+      console.log('사용자 정보 로딩 중... 중복 호출 방지');
+      return null;
+    }
+
+    setUserLoading(true);
+
     try {
       const response = await fetch(`${serverUrl}/api/users/me`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      
+
       if (response.ok) {
         const userData = await response.json();
         console.log('현재 사용자 정보:', userData);
@@ -45,24 +57,34 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
     } catch (error) {
       console.error('사용자 정보 조회 오류:', error);
       return null;
+    } finally {
+      setUserLoading(false);
     }
-  }, [serverUrl, accessToken]);
+  }, [serverUrl, accessToken, userLoading]);
 
   const fetchChatRooms = useCallback(async () => {
+    // 중복 호출 방지
+    if (chatRoomsLoading) {
+      console.log('채팅방 목록 로딩 중... 중복 호출 방지');
+      return;
+    }
+
+    setChatRoomsLoading(true);
+
     try {
       const response = await fetch(`${serverUrl}/api/users/chat-rooms`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('내가 가입한 채팅방 목록 조회 성공:', data);
-        
+
         // 이미 서버에서 마지막 메시지 시간 기준으로 정렬되어 옴
         const rooms = data || [];
-        
+
         console.log(`내가 가입한 채팅방 ${rooms.length}개 로드 완료`);
-        
+
         setChatRooms(rooms);
       } else if (response.status === 401 || response.status === 403) {
         alert('인증이 만료되었습니다. 다시 로그인해주세요.');
@@ -77,9 +99,9 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
         alert(`서버 연결 실패`);
       }
     } finally {
-      // setLoading(false); // 이 부분은 검색 관련 상태가 제거되어 삭제
+      setChatRoomsLoading(false);
     }
-  }, [serverUrl, accessToken, onBack]);
+  }, [serverUrl, accessToken, onBack, chatRoomsLoading]);
 
   // 모든 채팅방 조회 (참여 여부와 관계없이)
   const fetchAllChatRooms = useCallback(async () => {
@@ -368,61 +390,94 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
 
   useEffect(() => {
     const initializeData = async () => {
+      // 중복 초기화 방지
+      if (isInitializing || hasInitialized) {
+        console.log('ChatRoomsPage 초기화 중복 방지 - 이미 초기화되었거나 진행 중');
+        return;
+      }
+
       console.log('ChatRoomsPage 초기화 시작:', {
         serverUrl,
         accessToken: accessToken ? `${accessToken.substring(0, 20)}...` : '없음',
         hasToken: !!accessToken
       });
-      
+
       if (!accessToken) {
         console.error('accessToken이 없습니다!');
         alert('인증 토큰이 없습니다. 다시 로그인해주세요.');
         onBack();
         return;
       }
-      
-      // 1. 현재 사용자 정보 가져오기
-      await fetchCurrentUser();
-      
-      // 2. 내가 가입한 채팅방 목록 가져오기
-      await fetchChatRooms();
-      
-      // 3. 모든 채팅방 목록 가져오기 (탭 변경 시 로딩 방지)
-      await fetchAllChatRooms();
-      
-      console.log('ChatRoomsPage 초기화 완료');
-      
-      // 4. 초기화 완료 후 WebSocket 연결 시도
-      console.log('초기화 완료 - WebSocket 연결 시도');
-      connectWebSocket();
-      
-      // 5. 웹소켓 연결 후 잠시 기다린 다음 구독 시도
-      setTimeout(() => {
-        if (stompClient.current?.connected) {
-          console.log('WebSocket 연결 확인됨 - 모든 채팅방 구독 시도');
-          subscribeToAllRooms();
+
+      setIsInitializing(true);
+
+      try {
+        // 1. 현재 사용자 정보 가져오기 (없는 경우에만)
+        if (!currentUser) {
+          console.log('사용자 정보 조회 시작');
+          await fetchCurrentUser();
         } else {
-          console.log('WebSocket 연결 대기 중...');
+          console.log('사용자 정보 이미 존재 - 조회 생략');
         }
-      }, 1000);
+
+        // 2. 내가 가입한 채팅방 목록 가져오기 (없는 경우에만)
+        if (chatRooms.length === 0) {
+          console.log('채팅방 목록 조회 시작');
+          await fetchChatRooms();
+        } else {
+          console.log('채팅방 목록 이미 존재 - 조회 생략');
+        }
+
+        // 3. 모든 채팅방 목록 가져오기 (없는 경우에만)
+        if (allChatRooms.length === 0) {
+          console.log('모든 채팅방 목록 조회 시작');
+          await fetchAllChatRooms();
+        } else {
+          console.log('모든 채팅방 목록 이미 존재 - 조회 생략');
+        }
+
+        console.log('ChatRoomsPage 초기화 완료');
+
+        // 4. 초기화 완료 표시
+        setHasInitialized(true);
+
+        // 5. WebSocket 연결 시도
+        console.log('초기화 완료 - WebSocket 연결 시도');
+        connectWebSocket();
+
+        // 6. 웹소켓 연결 후 잠시 기다린 다음 구독 시도
+        setTimeout(() => {
+          if (stompClient.current?.connected) {
+            console.log('WebSocket 연결 확인됨 - 모든 채팅방 구독 시도');
+            subscribeToAllRooms();
+          } else {
+            console.log('WebSocket 연결 대기 중...');
+          }
+        }, 1000);
+      } catch (error) {
+        console.error('ChatRoomsPage 초기화 중 오류:', error);
+      } finally {
+        setIsInitializing(false);
+      }
     };
-    
+
     initializeData();
-    
+
     // 브라우저 알림 권한 요청
     if (Notification.permission === 'default') {
       Notification.requestPermission().then(permission => {
         console.log('알림 권한:', permission);
       });
     }
-  }, [accessToken, serverUrl, onBack, connectWebSocket]); // connectWebSocket 의존성 추가
+  }, [accessToken, serverUrl, onBack]); // 불필요한 의존성 제거
 
-  // 탭 변경 시 모든 채팅방 로드
+  // 탭 변경 시 모든 채팅방 로드 (초기화 완료 후에만)
   useEffect(() => {
-    if (activeTab === 'all-rooms' && allChatRooms.length === 0) {
+    if (activeTab === 'all-rooms' && allChatRooms.length === 0 && hasInitialized && !isInitializing) {
+      console.log('탭 변경으로 모든 채팅방 로드 시작');
       fetchAllChatRooms();
     }
-  }, [activeTab, allChatRooms.length, fetchAllChatRooms]);
+  }, [activeTab, allChatRooms.length, fetchAllChatRooms, hasInitialized, isInitializing]);
 
   // onChatPageReturn 함수 전달은 별도 useEffect로 분리
   useEffect(() => {
@@ -458,14 +513,28 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       });
 
       console.log(`채팅방 ${roomId} 입장 요청 전송 완료`);
-      
-      // 잠시 후 채팅방 목록 새로고침 (서버에서 처리 완료 대기)
-      setTimeout(async () => {
-        console.log('채팅방 목록 새로고침 시작');
-        await fetchChatRooms();
-        await fetchAllChatRooms();
-        console.log('채팅방 목록 새로고침 완료');
-      }, 1000);
+
+      // 참여한 채팅방을 내가 가입한 목록으로 이동 (API 호출 최소화)
+      setTimeout(() => {
+        const joinedRoom = allChatRooms.find(room => room.id === roomId);
+        if (joinedRoom) {
+          console.log('참여한 채팅방을 목록으로 이동:', joinedRoom.name);
+          setChatRooms(prev => {
+            // 중복 방지
+            if (prev.some(room => room.id === roomId)) {
+              return prev;
+            }
+            return [joinedRoom, ...prev];
+          });
+          setAllChatRooms(prev =>
+            prev.map(room =>
+              room.id === roomId
+                ? { ...room, joined: true } // 참여 상태 표시
+                : room
+            )
+          );
+        }
+      }, 500);
 
       alert('채팅방 입장 요청이 전송되었습니다!');
     } catch (error) {
@@ -497,15 +566,15 @@ const ChatRoomsPage: React.FC<ChatRoomsPageProps> = ({ serverUrl, accessToken, o
       if (response.ok) {
         const newRoom = await response.json();
         console.log('채팅방 생성 성공:', newRoom);
-        
-        // 채팅방 목록 새로고침
-        await fetchChatRooms();
-        await fetchAllChatRooms();
-        
+
+        // 생성된 채팅방을 목록에 직접 추가 (API 호출 최소화)
+        setChatRooms(prev => [newRoom, ...prev]); // 내가 가입한 방 목록에 추가
+        setAllChatRooms(prev => [newRoom, ...prev]); // 모든 방 목록에 추가
+
         // 모달 닫기 및 초기화
         setShowCreateModal(false);
         setNewRoomName('');
-        
+
         alert('채팅방이 생성되었습니다.');
       } else if (response.status === 401) {
         alert('인증이 만료되었습니다. 다시 로그인해주세요.');
