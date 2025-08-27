@@ -283,7 +283,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
     return () => {
       disconnectWebSocket();
     };
-  }, [chatRoom.id, fetchMessages, connectWebSocket, disconnectWebSocket]);
+  }, [chatRoom.id]); // 의존성에서 함수들 제거
 
   useEffect(() => {
     // 초기 로딩일 때만 스크롤을 맨 아래로
