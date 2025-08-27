@@ -1,9 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 import { ChatRoom, ChatMessage, User, PaginationResponse } from '../types';
-import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
+import useWebSocket from '../hooks/useWebSocket';
 
 const ChatRoomPage: React.FC = () => {
   const { roomName } = useParams<{ roomName: string }>();
@@ -14,16 +12,17 @@ const ChatRoomPage: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const stompClient = useRef<Client | null>(null);
-  const subscription = useRef<any>(null);
+  const messageHandler = useRef<((message: any) => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
+  
+  // WebSocket Hook 사용
+  const { connected, connect, subscribe, unsubscribe, publish } = useWebSocket();
 
   // localStorage에서 데이터 가져오기
   const accessToken = localStorage.getItem('chat_access_token');
@@ -134,94 +133,65 @@ const ChatRoomPage: React.FC = () => {
     }, 50);
   }, [loadingMore, hasMore, currentPage, fetchMessages]);
 
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(async () => {
     if (!selectedServer || !accessToken || !chatRoom) return;
     
-    const sockJsUrl = getSockJSUrl(selectedServer.url);
-    const socket = new SockJS(`${sockJsUrl}/ws-chat`);
-    const client = new Client({
-      webSocketFactory: () => socket,
-      connectHeaders: {
-        'Authorization': `Bearer ${accessToken}`
-      },
-      debug: (str) => {
-        if (ENV.DEBUG) {
-          console.log('STOMP Debug:', str);
-        }
-      },
-      onConnect: (frame) => {
-        console.log('WebSocket 연결됨:', frame);
-        setConnected(true);
-        
-        const sub = client.subscribe(`/sub/chat/room/${chatRoom.id}`, (message) => {
-          try {
-            const receivedMessage = JSON.parse(message.body);
-            
-            setMessages(prev => {
-              const isAlreadyExists = prev.some(msg => msg.id === receivedMessage.id);
-              if (isAlreadyExists) {
-                console.log('중복 메시지 무시:', receivedMessage.id);
-                return prev;
-              }
-              return [...prev, receivedMessage];
-            });
-          } catch (error) {
-            console.error('메시지 파싱 오류:', error);
+    try {
+      await connect(selectedServer.url, accessToken);
+      console.log('ChatRoomPage WebSocket 연결 완료');
+      
+      // 메시지 핸들러 생성
+      const handler = (receivedMessage: any) => {
+        setMessages(prev => {
+          const isAlreadyExists = prev.some(msg => msg.id === receivedMessage.id);
+          if (isAlreadyExists) {
+            console.log('중복 메시지 무시:', receivedMessage.id);
+            return prev;
           }
+          return [...prev, receivedMessage];
         });
-        
-        subscription.current = sub;
-        
-        setTimeout(() => {
-          client.publish({
-            destination: `/pub/chat/join/${chatRoom.id}`,
-            body: JSON.stringify({}),
-            headers: {
-              'Authorization': `Bearer ${accessToken}`
-            }
+      };
+      
+      // 구독 및 핸들러 저장
+      subscribe(`/sub/chat/room/${chatRoom.id}`, handler);
+      messageHandler.current = handler;
+      
+      // 채팅방 입장 메시지 전송
+      setTimeout(() => {
+        try {
+          publish(`/pub/chat/join/${chatRoom.id}`, {}, {
+            'Authorization': `Bearer ${accessToken}`
           });
-        }, 100);
-      },
-      onDisconnect: () => {
-        console.log('WebSocket 연결 끊어짐');
-        setConnected(false);
-      },
-      onStompError: (frame) => {
-        console.error('STOMP 오류:', frame);
-        setConnected(false);
-        
-        if (frame.body && frame.body.includes('403')) {
-          alert('인증이 만료되었습니다. 다시 로그인해주세요.');
-          localStorage.clear();
-          navigate('/login');
+          console.log('채팅방 입장 완료');
+        } catch (error) {
+          console.error('채팅방 입장 실패:', error);
         }
-      }
-    });
-    
-    client.activate();
-    stompClient.current = client;
-  }, [selectedServer, accessToken, chatRoom, navigate]);
+      }, 100);
+    } catch (error) {
+      console.error('ChatRoomPage WebSocket 연결 실패:', error);
+    }
+  }, [selectedServer, accessToken, chatRoom, connect, subscribe, publish]);
 
   const disconnectWebSocket = useCallback(() => {
-    if (stompClient.current && connected && chatRoom) {
-      stompClient.current.publish({
-        destination: `/pub/chat/leave/${chatRoom.id}`,
-        body: JSON.stringify({}),
-        headers: {
+    if (connected && chatRoom) {
+      try {
+        // 채팅방 퇴장 메시지 전송
+        publish(`/pub/chat/leave/${chatRoom.id}`, {}, {
           'Authorization': `Bearer ${accessToken}`
+        });
+        
+        // 구독 해제
+        if (messageHandler.current) {
+          unsubscribe(`/sub/chat/room/${chatRoom.id}`, messageHandler.current);
+          messageHandler.current = null;
         }
-      });
-      
-      if (subscription.current) {
-        subscription.current.unsubscribe();
-        subscription.current = null;
+        
+        console.log('채팅방 퇴장 완료');
+      } catch (error) {
+        console.error('채팅방 퇴장 중 오류:', error);
       }
-      
-      stompClient.current.deactivate();
-      stompClient.current = null;
-      setConnected(false);
     }
-  }, [connected, chatRoom, accessToken]);
+  }, [connected, chatRoom, accessToken, publish, unsubscribe]);
 
   useEffect(() => {
     if (!chatRoom || !selectedServer || !accessToken) return;
@@ -233,13 +203,17 @@ const ChatRoomPage: React.FC = () => {
     setLoadingMore(false);
     isInitialLoad.current = true;
     
-    fetchMessages(0, false);
-    connectWebSocket();
+    const initializeRoom = async () => {
+      await fetchMessages(0, false);
+      await connectWebSocket();
+    };
+    
+    initializeRoom();
     
     return () => {
       disconnectWebSocket();
     };
-  }, [chatRoom]);
+  }, [chatRoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (isInitialLoad.current && messages.length > 0) {
@@ -283,7 +257,7 @@ const ChatRoomPage: React.FC = () => {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !connected || !stompClient.current || !chatRoom) return;
+    if (!newMessage.trim() || !connected || !chatRoom) return;
 
     const messageToSend = {
       chatRoomId: chatRoom.id,
@@ -291,12 +265,8 @@ const ChatRoomPage: React.FC = () => {
     };
 
     try {
-      stompClient.current.publish({
-        destination: '/pub/chat/send',
-        body: JSON.stringify(messageToSend),
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+      publish('/pub/chat/send', messageToSend, {
+        'Authorization': `Bearer ${accessToken}`
       });
       
       setNewMessage('');

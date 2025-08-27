@@ -1,19 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import SockJS from 'sockjs-client';
-import { Client } from '@stomp/stompjs';
 import { ChatRoom } from '../types';
-import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
+import useWebSocket from '../hooks/useWebSocket';
 
 const AllChatsPage: React.FC = () => {
   const [allChatRooms, setAllChatRooms] = useState<ChatRoom[]>([]);
   const [allRoomsLoading, setAllRoomsLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [creating, setCreating] = useState(false);
-  const stompClient = useRef<Client | null>(null);
   const navigate = useNavigate();
+  
+  // WebSocket Hook 사용
+  const { connected, connect, publish } = useWebSocket();
 
   // localStorage에서 데이터 가져오기
   const accessToken = localStorage.getItem('chat_access_token');
@@ -58,46 +57,26 @@ const AllChatsPage: React.FC = () => {
     }
   }, [selectedServer, accessToken, navigate]);
 
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(async () => {
     if (!selectedServer || !accessToken) return;
     
-    const sockJsUrl = getSockJSUrl(selectedServer.url);
-    const socket = new SockJS(`${sockJsUrl}/ws-chat`);
-    const client = new Client({
-      webSocketFactory: () => socket,
-      connectHeaders: {
-        'Authorization': `Bearer ${accessToken}`
-      },
-      debug: (str) => {
-        if (ENV.DEBUG) {
-          console.log('STOMP Debug:', str);
-        }
-      },
-      onConnect: () => setConnected(true),
-      onDisconnect: () => setConnected(false),
-      onStompError: (frame) => {
-        console.error('STOMP 에러:', frame);
-        setConnected(false);
-      }
-    });
-    
-    client.activate();
-    stompClient.current = client;
-  }, [selectedServer, accessToken]);
+    try {
+      await connect(selectedServer.url, accessToken);
+      console.log('AllChatsPage WebSocket 연결 완료');
+    } catch (error) {
+      console.error('AllChatsPage WebSocket 연결 실패:', error);
+    }
+  }, [selectedServer, accessToken, connect]);
 
   const joinChatRoom = async (roomId: number) => {
-    if (!stompClient.current?.connected) {
+    if (!connected) {
       alert('WebSocket 연결이 필요합니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
     try {
-      stompClient.current.publish({
-        destination: `/pub/chat/join/${roomId}`,
-        body: JSON.stringify({}),
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+      publish(`/pub/chat/join/${roomId}`, {}, {
+        'Authorization': `Bearer ${accessToken}`
       });
 
       alert('채팅방 입장 요청이 전송되었습니다!');
@@ -157,16 +136,13 @@ const AllChatsPage: React.FC = () => {
   useEffect(() => {
     if (!accessToken || !selectedServer) return;
 
-    fetchAllChatRooms();
-    connectWebSocket();
-
-    return () => {
-      if (stompClient.current) {
-        stompClient.current.deactivate();
-        stompClient.current = null;
-      }
+    const initializeData = async () => {
+      await fetchAllChatRooms();
+      await connectWebSocket();
     };
-  }, []);
+
+    initializeData();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!accessToken || !selectedServer) {
     return null;
