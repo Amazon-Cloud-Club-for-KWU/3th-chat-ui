@@ -214,58 +214,104 @@ const MyChatsPage: React.FC = () => {
   }
 
   return (
-    <div className="page-container">
-      <div className="chat-rooms-header">
-        <button className="back-button" onClick={handleLogout}>← 로그아웃</button>
-        <h1>내 채팅방</h1>
+    <div className="page-container chat-list-page">
+      <div className="elegant-header">
+        <div className="header-left">
+          <button className="elegant-back-button" onClick={handleLogout}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5m7-7-7 7 7 7" />
+            </svg>
+            로그아웃
+          </button>
+        </div>
+        <div className="header-center">
+          <h1 className="elegant-title">
+            <span className="title-icon">💬</span>
+            내 채팅방
+            <span className="chat-count">({chatRooms.length})</span>
+          </h1>
+        </div>
         <div className="header-right">
-          <Link to="/all-chats" className="nav-link">모든 채팅방</Link>
-          <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
-            {connected ? '🟢' : '🔴'}
+          <Link to="/all-chats" className="elegant-nav-button">
+            <span>🌐</span>
+            모든 채팅방
+          </Link>
+          <div className={`elegant-connection-status ${connected ? 'connected' : 'disconnected'}`}>
+            <div className="status-dot"></div>
+            <span>{connected ? '온라인' : '연결 중...'}</span>
           </div>
         </div>
       </div>
 
       {chatRooms.length === 0 ? (
-        <div className="empty-state">
-          <p>참여한 채팅방이 없습니다.</p>
-          <Link to="/all-chats" className="create-first-room-button">
+        <div className="elegant-empty-state">
+          <div className="empty-icon">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <h3>아직 참여한 채팅방이 없어요</h3>
+          <p>새로운 사람들과 대화를 시작해보세요!</p>
+          <Link to="/all-chats" className="elegant-cta-button">
+            <span>✨</span>
             채팅방 둘러보기
           </Link>
         </div>
       ) : (
-        <div className="chat-room-list">
-          {chatRooms.map((room) => (
-            <button
+        <div className="elegant-chat-room-list">
+          {chatRooms.map((room, index) => (
+            <div
               key={room.id}
-              className="chat-room-item"
+              className="elegant-chat-room-item"
               onClick={() => handleChatRoomClick(room)}
+              style={{'--animation-delay': `${index * 0.1}s`} as React.CSSProperties}
             >
-              <div className="room-header">
-                <div className="room-name-container">
-                  <div className="room-name">{room.name}</div>
-                  {room.unreadCount && room.unreadCount > 0 && (
-                    <span className="unread-badge">{room.unreadCount}</span>
-                  )}
+              <div className="room-avatar">
+                <div className="avatar-placeholder">
+                  {room.name.charAt(0).toUpperCase()}
                 </div>
-                {room.lastMessage && (
-                  <div className="last-message-time">
-                    {new Date(room.lastMessage.createdAt).toLocaleTimeString('ko-KR', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </div>
+                {room.unreadCount && room.unreadCount > 0 && (
+                  <div className="elegant-unread-badge">{room.unreadCount}</div>
                 )}
               </div>
-              {room.lastMessage && (
-                <div className="last-message">
-                  <span className="sender-name">{room.lastMessage.sender.username}</span>: {room.lastMessage.content}
+              
+              <div className="room-content">
+                <div className="room-header">
+                  <h3 className="room-title">{room.name}</h3>
+                  {room.lastMessage && (
+                    <span className="message-time">
+                      {new Date(room.lastMessage.createdAt).toLocaleDateString('ko-KR') === 
+                       new Date().toLocaleDateString('ko-KR') 
+                        ? new Date(room.lastMessage.createdAt).toLocaleTimeString('ko-KR', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : new Date(room.lastMessage.createdAt).toLocaleDateString('ko-KR', {
+                            month: 'short',
+                            day: 'numeric'
+                          })}
+                    </span>
+                  )}
                 </div>
-              )}
-              {!room.lastMessage && (
-                <div className="last-message no-message">메시지가 없습니다</div>
-              )}
-            </button>
+                
+                <div className="room-preview">
+                  {room.lastMessage ? (
+                    <>
+                      <span className="sender-name">{room.lastMessage.sender.username}</span>
+                      <span className="message-preview">{room.lastMessage.content}</span>
+                    </>
+                  ) : (
+                    <span className="no-messages">새로운 대화를 시작해보세요</span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="room-indicator">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </div>
+            </div>
           ))}
         </div>
       )}
