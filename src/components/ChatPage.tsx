@@ -4,9 +4,6 @@ import SockJS from 'sockjs-client';
 import { ChatRoom, ChatMessage, User, PaginationResponse } from '../types';
 import { getWebSocketUrl, getSockJSUrl, ENV } from '../config/env';
 
-// Subscription 타입 정의
-type Subscription = any;
-
 interface ChatPageProps {
   chatRoom: ChatRoom;
   serverUrl: string;
@@ -46,11 +43,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ chatRoom, serverUrl, accessToken, u
       
       if (response.ok) {
         const data: PaginationResponse<ChatMessage> = await response.json();
-        console.log(`메시지 조회 - 페이지: ${page}, 추가모드: ${append}, 메시지 개수: ${data.nodes?.length || 0}`);
+        console.log(`메시지 조회 - 페이지: ${page}, 추가모드: ${append}, 메시지 개수: ${data.content?.length || 0}`);
         
-        const newMessages = data.nodes || [];
-        const totalCount = data.totalCount || 0;
-        const pageSize = data.size || 20;
+        const newMessages = data.content || [];
+        const totalCount = data.page.totalElements || 0;
+        const pageSize = data.page.size || 20;
         const totalPages = Math.ceil(totalCount / pageSize);
         
         setTotalPages(totalPages);

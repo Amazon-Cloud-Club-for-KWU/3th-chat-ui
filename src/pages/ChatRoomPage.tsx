@@ -54,9 +54,9 @@ const ChatRoomPage: React.FC = () => {
       
       if (response.ok) {
         const data: PaginationResponse<ChatMessage> = await response.json();
-        const newMessages = data.nodes || [];
-        const totalCount = data.totalCount || 0;
-        const pageSize = data.size || 20;
+        const newMessages = data.content || [];
+        const totalCount = data.page.totalElements || 0;
+        const pageSize = data.page.size || 20;
         const totalPages = Math.ceil(totalCount / pageSize);
         
         setTotalPages(totalPages);

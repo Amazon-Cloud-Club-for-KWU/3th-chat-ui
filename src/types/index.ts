@@ -26,10 +26,15 @@ export interface ServerConfig {
 }
 
 export interface PaginationResponse<T> {
-  nodes: T[];
-  totalCount: number;
-  page: number;
-  size: number;
+  content: T[];
+  page: PageInfo;
+}
+
+export interface PageInfo {
+  size: number,
+  number: number,
+  totalElements: number,
+  totalPages: number
 }
 
 export interface AppState {
